@@ -10,14 +10,23 @@ using Random
 using CairoMakie, GraphMakie
 using GLMakie
 
+begin
+# rng = Random.MersenneTwister(433)
 graph_size   = 1000
 connectivity = 10
-# rng = Random.MersenneTwister(433)
-
-destinations = sample(rng,1:graph_size, connectivity*graph_size,replace=true)
-sources = shuffle(rng, destinations)
-influence = rand(rng, Uniform(0.0,1.0),length(sources)); # can get weights greater than 1.0, but it can be normalized (for now), it is a random graph anyway
+destinations = sample(1:graph_size, connectivity*graph_size,replace=true)
+sources = shuffle(destinations)
+influence = rand(Uniform(0.0,1.0),length(sources)); # can get weights greater than 1.0, but it can be normalized (for now), it is a random graph anyway
 popul_graph = SimpleWeightedGraph(sources, destinations, influence)
+
+# repeat for second population
+
+# modify graph a little
+# second_graph_size = 50
+# add_vertices!(popul_graph, second_graph_size)
+# new_vertices = graph_size+1:(graph_size+second_graph_size)
+# new_influence = rand(Uniform(0.0, 1.0), length(new_vertices))
+# [add_edge!.(Ref(popul_graph), new_vertices, shuffle(new_vertices), new_influence) for _ in 1:connectivity]
 
 # remove self influences
 if has_self_loops(popul_graph)
@@ -25,26 +34,33 @@ if has_self_loops(popul_graph)
   rem_edge!.(Ref(popul_graph), vertices_w_loops, vertices_w_loops)
 end
 
+# connect both clouds
+# add_edge!(popul_graph, sample(1:graph_size), sample(new_vertices), 0.5)
+
 # connect hermits
-no_neighbours = isempty.(neighbors.(Ref(g), vertices(g)))
+no_neighbours = isempty.(neighbors.(Ref(popul_graph), vertices(popul_graph)))
 has_neighbours = findall(.~no_neighbours)
-add_edge!.(Ref(g), findall(no_neighbours), sample(rng,has_neighbours, sum(no_neighbours)))
+add_edge!.(Ref(popul_graph), findall(no_neighbours), sample(has_neighbours, sum(no_neighbours)))
 
 # normalize weights
 # g.weights = g.weights/maximum(g.weights) # normalize weights (works for random graph, shouldn't be required for real data)
 
-unlooped_influence = findnz(triu(Graphs.weights(g)))[3]
-unlooped_influence .= 0.5  # full influence
+unlooped_influence = findnz(triu(Graphs.weights(popul_graph)))[3]
+unlooped_influence .= 0.5  # half influence
 
+spin_vector = sample([-1,1],StatsBase.Weights([0.1,0.9]), nv(popul_graph))
 SPIN_COLORS = Dict(tuple.((:down, :up),cgrad(:coolwarm,2, categorical=true)))
-spin_vector = sample(rng, [-1,1],StatsBase.Weights([0.1,0.9]), nv(g))
+end
+
+
+
 
 #= plot stuff
 # weights_label    = map((w)->@sprintf("%.4f",w), unlooped_influence)
 COL_RANGE        = (minimum(unlooped_influence),maximum(unlooped_influence))
 NODE_COL         = :white # theme_dark().attributes[:backgroundcolor].val;
 CMAP             = :batlow;
-NODE_LABELS      = string.(1:nv(g))
+NODE_LABELS      = string.(1:nv(popul_graph))
 SPIN_LABELS      = string.(spin_vector)
 AX_SETTINGS = (xtickalign=1, ytickalign=1, xgridvisible=false, ygridvisible=false, backgroundcolor=:transparent,bottomspinevisible=true,topspinevisible=true, leftspinevisible=true, rightspinevisible=true)
 
@@ -72,13 +88,13 @@ end
 
 function efficient_hamiltonian(h::SimpleWeightedGraph, spin::Vector, idx::Int)
   # calculate hamiltonian for σ at idx
-  return -dot(get_influence(g, idx), view(spin, neighbors(g,idx)))*spin[idx]
+  return -dot(get_influence(h, idx), view(spin, neighbors(h,idx)))*spin[idx]
 end
 
 
 function update_spin(β::Float64,  graph::SimpleWeightedGraph,orig_spin::Vector)
   spin_vec = copy(orig_spin)
-  node_to_flip = rand(rng, 1:nv(graph))
+  node_to_flip = rand(1:nv(graph))
 
   # β  = 0.1
   # old_energy_full = sum(hamiltonian(graph, spin_vector))
@@ -104,7 +120,7 @@ GC.gc()
 BOLTZMANN = 1.0
 TEMP      = 10.0
 BETA      = 1/(BOLTZMANN*TEMP)
-MAXITER   = 1050
+MAXITER   = 250
 NUM_RUNS  = 50
 
 states    = fill(spin_vector, NUM_RUNS) # must be vector of vectors
@@ -123,7 +139,7 @@ people_down[1,:] = permutedims(sum.(map(isSmaller, states))) # 1 - above
 # while (STATESUM > 0 && ITER < MAXITER)
 for (time,(step_up, step_down)) in enumerate(zip(eachrow(people_up),eachrow(people_down)))
   @printf("time = %i\n", time)
-  states = update_spin.(Ref(g),states)
+  states = update_spin.(BETA, Ref(popul_graph),states)
   step_up[:] = sum.(map(isGreater, states))
   # step_down[:] = sum.(map(isSmaller, states)) # 1 - above
   # graphplot!(ax, g, node_color=states,edge_color=unlooped_influence,node_size=20, node_attr=(colorrange=(-1,1), colormap=SPIN_COLORS), edge_attr=(colorrange=COL_RANGE, colormap=CMAP))
@@ -133,16 +149,21 @@ for (time,(step_up, step_down)) in enumerate(zip(eachrow(people_up),eachrow(peop
 end
 end
 
-
-
 let
 GC.gc()
 fig = Figure()
 ax = Axis(fig[1,1], xlabel="iter", ylabel="n")
 # lines!.(ax, eachcol(people_down), linestyle=:solid,color=(SPIN_COLORS[:down], 0.1))
-lines!.(ax, eachcol(people_up), linestyle=:solid,color=(SPIN_COLORS[:up], 0.1))
+lines!.(ax, eachcol(people_up), linestyle=:solid,color=(SPIN_COLORS[:up], 0.05))
 # lines!(ax, vec(mean(people_down, dims=2)), color=SPIN_COLORS[:down], label=L"\left\langle\sum\downarrow\right\rangle")
-lines!(ax, vec(mean(people_up, dims=2)), color=SPIN_COLORS[:up], label=L"\left\langle\sum\uparrow\right\rangle")
-# axislegend(ax, unique=true, orientation=:horizontal, position=:ct)
+lines!(ax, vec(mean(people_up, dims=2)), color=:black, label=L"\left\langle\sum\uparrow\right\rangle")
+axislegend(ax, unique=true, orientation=:horizontal, position=:ct)
 fig
+end
+let
+edgecolors = fill((:black, 0.2),1:ne(popul_graph))
+fig2 = Figure()
+ax2 = Axis3(fig2[1,1])
+graphplot!(ax2, popul_graph, node_color=states[1],edge_color=edgecolors, node_attr=(colorrange=(-1,1), colormap=[SPIN_COLORS[:down], SPIN_COLORS[:up]]), layout=Spring(dim=3, C=2.0), node_size=15)
+fig2
 end
