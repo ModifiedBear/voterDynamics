@@ -1,7 +1,7 @@
 # ising-like interactions on a (non periodic) graph
 # TODO: create type for weights ij to be iterable or smnthn
 
-using Graphs, SimpleWeightedGraphs, StatsBase
+using Graphs, SimpleWeightedGraphs, StatsBase, NetworkLayout
 using Distributions
 using LinearAlgebra
 using SparseArrays
@@ -12,7 +12,7 @@ using GLMakie
 
 begin
 # rng = Random.MersenneTwister(433)
-graph_size   = 1000
+graph_size   = 100
 connectivity = 10
 destinations = sample(1:graph_size, connectivity*graph_size,replace=true)
 sources = shuffle(destinations)
@@ -46,9 +46,9 @@ add_edge!.(Ref(popul_graph), findall(no_neighbours), sample(has_neighbours, sum(
 # g.weights = g.weights/maximum(g.weights) # normalize weights (works for random graph, shouldn't be required for real data)
 
 unlooped_influence = findnz(triu(Graphs.weights(popul_graph)))[3]
-unlooped_influence .= 0.5  # half influence
+unlooped_influence .= 0.5  # 50/50 influence
 
-spin_vector = sample([-1,1],StatsBase.Weights([0.1,0.9]), nv(popul_graph))
+spin_vector = sample([-1,1],StatsBase.Weights([0.5,0.5]), nv(popul_graph))
 SPIN_COLORS = Dict(tuple.((:down, :up),cgrad(:coolwarm,2, categorical=true)))
 end
 
@@ -160,10 +160,11 @@ lines!(ax, vec(mean(people_up, dims=2)), color=:black, label=L"\left\langle\sum\
 axislegend(ax, unique=true, orientation=:horizontal, position=:ct)
 fig
 end
+
 let
 edgecolors = fill((:black, 0.2),1:ne(popul_graph))
 fig2 = Figure()
 ax2 = Axis3(fig2[1,1])
-graphplot!(ax2, popul_graph, node_color=states[1],edge_color=edgecolors, node_attr=(colorrange=(-1,1), colormap=[SPIN_COLORS[:down], SPIN_COLORS[:up]]), layout=Spring(dim=3, C=2.0), node_size=15)
+graphplot!(ax2, popul_graph, node_color=states[1],edge_color=edgecolors, node_attr=(colorrange=(-1,1), colormap=[SPIN_COLORS[:down], SPIN_COLORS[:up]]), layout=NetworkLayout.Spring(dim=3, C=2.0), node_size=15)
 fig2
 end
