@@ -26,3 +26,4 @@ Manifest.toml
 # image folder
 ./images
 ./images/*
+*.mp4
